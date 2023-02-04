@@ -12,10 +12,10 @@
 #define LCD_LINES 4
 #define LCD_CHARS 20
 // buttons
-#define RELAY_PIN 5
+#define BTN_MODE 5
 #define BTN_FIRE 6
 #define BTN_FOCUS 7
-#define BTN_MODE 8
+#define RELAY_PIN 8
 #define debounceDelay 80
 
 // Software
