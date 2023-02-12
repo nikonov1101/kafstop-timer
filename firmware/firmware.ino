@@ -24,6 +24,7 @@
 #define printingMode 2
 
 EncButton<EB_CALLBACK, ENC_A, ENC_B, ENC_KEY> enc;
+// TODO(nikonov1101): use 4bit connection instead.
 LiquidCrystal_I2C lcd(LCD_ADDR, LCD_CHARS, LCD_LINES);
 
 ButtonDebounce modeButton(BTN_MODE, debounceDelay);
@@ -56,7 +57,7 @@ static uint8_t tickHappen = 0;
 
 void setup() {
   // debug
-  Serial.begin(9600);
+  // Serial.begin(9600);
 
   // setup the timer
   cli();
@@ -126,6 +127,7 @@ void printTimerValue() {
   if (mainTimer < 10) {
     lcd.print(mainTimer, 1);
   } else {
+    // TODO(nikonov1101): don't. Print decimal part only if value is less than 10.
     auto x1 = (uint16_t)mainTimer * 100;
     auto x2 = mainTimer * 100.0;
 
@@ -140,6 +142,7 @@ void printTimerValue() {
 }
 
 void printLinearMode() {
+  // TODO(nikonov1101): avoid if possible
   lcd.clear();
 
   lcd.setCursor(0, 0);
@@ -150,6 +153,7 @@ void printLinearMode() {
 }
 
 void printTestMode() {
+  // TODO(nikonov1101): don't clear the display on each timer tick.
   lcd.clear();
 
   switch (submode) {
@@ -197,6 +201,7 @@ void printTestMode() {
 }
 
 void printPrintingMode() {
+  // TODO(nikonov1101): don't clear the display on each timer tick.
   lcd.clear();
 
   switch (submode) {
