@@ -1,5 +1,5 @@
 #include <Wire.h>
-#include <LiquidCrystal_I2C.h>
+#include <LiquidCrystal.h>
 #include <EncButton.h>
 #include <ButtonDebounce.h>
 
@@ -7,16 +7,19 @@
 #define ENC_A 2
 #define ENC_B 3
 #define ENC_KEY 4
-// LCD
-#define LCD_ADDR 0x27
-#define LCD_LINES 4
-#define LCD_CHARS 20
 // buttons
-#define BTN_MODE 5
+#define BTN_MODE 8
 #define BTN_FIRE 6
 #define BTN_FOCUS 7
-#define RELAY_PIN 8
+#define RELAY_PIN 5
 #define debounceDelay 80
+// LCD
+#define LCD_RS 14
+#define LCD_EN 15 
+#define LCD_D4 16
+#define LCD_D5 17
+#define LCD_D6 18
+#define LCD_D7 19
 
 // Software
 #define linearMode 0
@@ -25,7 +28,8 @@
 
 EncButton<EB_CALLBACK, ENC_A, ENC_B, ENC_KEY> enc;
 // TODO(nikonov1101): use 4bit connection instead.
-LiquidCrystal_I2C lcd(LCD_ADDR, LCD_CHARS, LCD_LINES);
+// LiquidCrystal_I2C lcd(LCD_ADDR, LCD_CHARS, LCD_LINES);
+LiquidCrystal lcd(LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 
 ButtonDebounce modeButton(BTN_MODE, debounceDelay);
 ButtonDebounce fireButton(BTN_FIRE, debounceDelay);
@@ -77,8 +81,7 @@ void setup() {
   modeButton.setCallback(onMode);
 
   // initialize the lcd
-  lcd.init();
-  lcd.backlight();
+  lcd.begin(16, 2);
 
   // setup the encoder
   enc.attach(LEFT_HANDLER, encPlus);
