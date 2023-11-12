@@ -15,7 +15,7 @@
 #define debounceDelay 80
 // LCD
 #define LCD_RS 14
-#define LCD_EN 15 
+#define LCD_EN 15
 #define LCD_D4 16
 #define LCD_D5 17
 #define LCD_D6 18
@@ -26,8 +26,7 @@
 #define testStripMode 1
 #define timerInitialValue 8.0
 
-// TODO(nikonov) migrate to v3 lib
-EncButton<EB_CALLBACK, ENC_A, ENC_B, ENC_KEY> enc;
+EncButton enc(ENC_A, ENC_B, ENC_KEY);
 LiquidCrystal lcd(LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 
 ButtonDebounce modeButton(BTN_MODE, debounceDelay);
@@ -82,11 +81,7 @@ void setup() {
   lcd.begin(16, 2);
 
   // setup the encoder
-  enc.attach(LEFT_HANDLER, encPlus);
-  enc.attach(LEFT_H_HANDLER, encPlus);
-  enc.attach(RIGHT_HANDLER, encMinus);
-  enc.attach(RIGHT_H_HANDLER, encMinus);
-  enc.attach(CLICK_HANDLER, encClick);
+  enc.attach(encCallback);
 
   // encoder handled via hardware interrupts
   attachInterrupt(0, isr, CHANGE);
@@ -94,6 +89,26 @@ void setup() {
 
   // show the initial screen
   printModeInitials();
+}
+
+void encCallback() {
+  switch (enc.action()) {
+    case EB_CLICK:
+      encClick();
+      break;
+
+    case EB_TURN:
+      auto dir = enc.dir();
+      uint8_t delta = enc.fast() ? 1 : 0;
+
+      if (dir > 0) {
+        encMinus(delta);
+      } else {
+        encPlus(delta);
+      }
+
+      break;
+  }
 }
 
 ISR(TIMER1_COMPA_vect) {
@@ -209,7 +224,7 @@ void setMode() {
   printModeInitials();
 }
 
-void encPlus() {
+void encPlus(uint8_t isFast) {
   if (relayMode != RELAY_MODE_OFF) {
     // lock interface if running
     return;
@@ -217,14 +232,14 @@ void encPlus() {
 
   switch (mode) {
     case linearMode:
-      mainTimer = encInc(mainTimer);
+      mainTimer = encInc(mainTimer, isFast);
       printLinearMode();
       break;
 
     case testStripMode:
       switch (submode) {
         case 0:
-          mainTimer = encInc(mainTimer);
+          mainTimer = encInc(mainTimer, isFast);
           break;
         case 1:
           deltaStops = nextFstopFraction(deltaStops);
@@ -238,7 +253,7 @@ void encPlus() {
   }
 }
 
-void encMinus() {
+void encMinus(uint8_t isFast) {
   if (relayMode != RELAY_MODE_OFF) {
     // lock interface if running
     return;
@@ -246,14 +261,14 @@ void encMinus() {
 
   switch (mode) {
     case linearMode:
-      mainTimer = encDec(mainTimer);
+      mainTimer = encDec(mainTimer, isFast);
       printLinearMode();
       break;
 
     case testStripMode:
       switch (submode) {
         case 0:
-          mainTimer = encDec(mainTimer);
+          mainTimer = encDec(mainTimer, isFast);
           break;
         case 1:
           deltaStops = prevFstopFraction(deltaStops);
@@ -410,28 +425,29 @@ float subFstop(float v, uint8_t dividee) {
   return v / pow(2, tmp);
 }
 
-float encInc(float v) {
-  if (v == 999.9) {
-    return v;
+float encInc(float v, uint8_t isFast) {
+  if (v >= 999.1) {
+    return 999;
   }
 
   if (v > 9.51) {
-    v = v + 1.0;
+    v += isFast ? 3.0 : 1.0;
   } else {
-    v = v + 0.5;
+    v += 0.5;
   }
 
   return v;
 }
 
-float encDec(float v) {
-  if (v == 0) {
+float encDec(float v, uint8_t isFast) {
+  if (v <= 0) {
     return 0;
   }
+
   if (v > 10) {
-    v = v - 1.0;
+    v -= isFast ? 3.0 : 1.0;
   } else {
-    v = v - 0.5;
+    v -= 0.5;
   }
 
   return v;
