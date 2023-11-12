@@ -9,8 +9,8 @@
 #define ENC_KEY 4
 // buttons
 #define BTN_MODE 8
-#define BTN_FIRE 6
-#define BTN_FOCUS 7
+#define BTN_FIRE 7
+#define BTN_FOCUS 6
 #define RELAY_PIN 5
 #define debounceDelay 80
 // LCD
@@ -24,11 +24,10 @@
 // Software
 #define linearMode 0
 #define testStripMode 1
-#define printingMode 2
+#define timerInitialValue 8.0
 
+// TODO(nikonov) migrate to v3 lib
 EncButton<EB_CALLBACK, ENC_A, ENC_B, ENC_KEY> enc;
-// TODO(nikonov1101): use 4bit connection instead.
-// LiquidCrystal_I2C lcd(LCD_ADDR, LCD_CHARS, LCD_LINES);
 LiquidCrystal lcd(LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 
 ButtonDebounce modeButton(BTN_MODE, debounceDelay);
@@ -39,12 +38,11 @@ ButtonDebounce focusButton(BTN_FOCUS, debounceDelay);
 static uint8_t mode = testStripMode;
 static uint8_t submode = 0;
 
-static float mainTimer = 8.0;         // 4 byte
-static float savedTimer = mainTimer;  // 4 more byte
+static float mainTimer = timerInitialValue;         // 4 byte
+static float savedTimer = timerInitialValue;  // 4 more byte
 static float tmpTimer;                // a crutch for a fstop auto advancing
 static uint8_t deltaStops = 1;        // 1 / n-th stop
 static uint8_t runCounter = 0;        // increments on each test run
-// static uint8_t burnSteps = 1;
 
 // relay output modes
 #define RELAY_MODE_OFF 0
@@ -100,8 +98,6 @@ void setup() {
 
 ISR(TIMER1_COMPA_vect) {
   TCNT1 = 0;  // First, set the timer back to 0 so it resets for next interrupt
-  // Serial.println(millis());
-  // timerUpdate();
   tickHappen = 1;
 }
 
@@ -116,9 +112,6 @@ void printModeInitials() {
       break;
     case testStripMode:
       printTestMode();
-      break;
-    case printingMode:
-      printPrintingMode();
       break;
   }
 }
@@ -203,72 +196,15 @@ void printTestMode() {
   }
 }
 
-void printPrintingMode() {
-  // TODO(nikonov1101): don't clear the display on each timer tick.
-  lcd.clear();
-
-  switch (submode) {
-    case 0:
-      lcd.setCursor(0, 0);
-      lcd.print("Print: base time");
-
-      printTimerValue();
-      break;
-    case 1:
-      lcd.setCursor(0, 0);
-      lcd.print("Print: burn step");
-
-      lcd.setCursor(0, 1);
-      lcd.print("d=1");
-      if (deltaStops > 1) {
-        lcd.print("/");
-        lcd.print(deltaStops);
-      }
-      lcd.print(" fs");
-      break;
-
-    case 2:
-      lcd.setCursor(0, 0);
-      lcd.print("Print: base");
-      printTimerValue();
-      break;
-
-    case 3:
-      lcd.setCursor(0, 0);
-      lcd.print("Burn +");
-      if (deltaStops == 1) {
-        lcd.print(runCounter);
-        lcd.print(" fs");
-      } else {
-        lcd.print(runCounter);
-        lcd.print("/");
-        lcd.print(deltaStops);
-        lcd.print(" fs");
-      }
-
-      printTimerValue();
-      break;
-  }
-}
-
 void setMode() {
-  // TODO(@nikonov1101): reset timers as well?
   submode = 0;
   runCounter = 0;
   tmpTimer = 0;
-  mainTimer = 8.0;
-  mode++;
-  if (mode > printingMode) {
-    mode = linearMode;
-  }
+  mainTimer = timerInitialValue;
+
+  mode = (mode == linearMode) ? testStripMode : linearMode;
 
   allowedToRUN = mode == linearMode;
-
-  // switching to printing mode ->
-  // round up the timer value
-  if (printingMode) {
-    mainTimer = (int)mainTimer;
-  }
 
   printModeInitials();
 }
@@ -299,32 +235,6 @@ void encPlus() {
 
       printTestMode();
       break;
-
-    case printingMode:
-      switch (submode) {
-        case 0:
-          mainTimer = encInc(mainTimer);
-          break;
-        case 1:
-          deltaStops = nextFstopFraction(deltaStops);
-          break;
-        case 3:
-          {
-            if (runCounter == 99) {
-              return;
-            }
-
-            runCounter++;
-            float x = mulFstop(savedTimer, runCounter, deltaStops);
-            mainTimer = x - savedTimer;
-            break;
-          }  // case 3
-        default:
-          return;
-      }
-
-      printPrintingMode();
-      break;
   }
 }
 
@@ -353,32 +263,6 @@ void encMinus() {
       }
 
       printTestMode();
-      break;
-
-    case printingMode:
-      switch (submode) {
-        case 0:
-          mainTimer = encDec(mainTimer);
-          break;
-        case 1:
-          deltaStops = prevFstopFraction(deltaStops);
-          break;
-        case 3:
-          {
-            if (runCounter == 1) {
-              break;
-            }
-
-            runCounter--;
-            float x = mulFstop(savedTimer, runCounter, deltaStops);
-            mainTimer = x - savedTimer;
-            break;
-          }
-        default:
-          return;
-      }
-
-      printPrintingMode();
       break;
   }
 }
@@ -409,29 +293,6 @@ void encClick() {
       allowedToRUN = submode == 2 ? 1 : 0;
 
       printTestMode();
-      break;
-
-    case printingMode:
-      submode++;
-      if (submode > 3) {
-        submode = 0;
-      }
-
-      if (submode == 1) {
-        // stash the timer for further fstop calculations
-        savedTimer = mainTimer;
-      }
-
-      allowedToRUN = submode > 1;  // 2 and 3 for base and burn
-
-      // BURN MODE
-      if (submode == 3) {
-        runCounter = 1;
-        float x = addFstop(savedTimer, deltaStops);
-        mainTimer = x - savedTimer;
-      }
-
-      printPrintingMode();
       break;
 
     case linearMode:
@@ -588,10 +449,6 @@ uint8_t nextFstopFraction(uint8_t v) {
       return 6;
     case 6:
       return 8;
-    case 8:
-      return 12;
-    case 12:
-      return 16;
     default:
       return v;
   }
@@ -609,10 +466,6 @@ uint8_t prevFstopFraction(uint8_t v) {
       return 4;
     case 8:
       return 6;
-    case 12:
-      return 8;
-    case 16:
-      return 12;
     default:
       return v;
   }
