@@ -22,8 +22,17 @@
 #define LCD_D7 19
 
 // Software
-#define linearMode 0
-#define testStripMode 1
+#define MODE_LINEAR 0
+#define MODE_TEST_STRIP 1
+
+// sub-modes for TEST_STRIP
+#define SUBMODE_TS_INIT 0 // set test initial time
+#define SUBMODE_TS_FSTOP 1 // set f/stop incerements
+#define SUBMODE_TS_RUNNING 2 // run the test
+
+// sub-modes for MODE_LINEAR
+#define SUBMODE_LINEAR 0 // just a linear mode
+
 #define timerInitialValue 8.0
 
 EncButton enc(ENC_A, ENC_B, ENC_KEY);
@@ -34,8 +43,8 @@ ButtonDebounce fireButton(BTN_FIRE, debounceDelay);
 ButtonDebounce focusButton(BTN_FOCUS, debounceDelay);
 
 // the state
-static uint8_t mode = testStripMode;
-static uint8_t submode = 0;
+static uint8_t mode = MODE_TEST_STRIP;
+static uint8_t submode = SUBMODE_TS_INIT;
 
 static float mainTimer = timerInitialValue;         // 4 byte
 static float savedTimer = timerInitialValue;  // 4 more byte
@@ -122,10 +131,10 @@ void isr() {
 
 void printModeInitials() {
   switch (mode) {
-    case linearMode:
+    case MODE_LINEAR:
       printLinearMode();
       break;
-    case testStripMode:
+    case MODE_TEST_STRIP:
       printTestMode();
       break;
   }
@@ -168,14 +177,14 @@ void printTestMode() {
   lcd.clear();
 
   switch (submode) {
-    case 0:
+    case SUBMODE_TS_INIT:
       lcd.setCursor(0, 0);
       lcd.print("Test: init time");
 
       printTimerValue();
       break;
 
-    case 1:
+    case SUBMODE_TS_FSTOP:
       lcd.setCursor(0, 0);
       lcd.print("Test: set step");
 
@@ -189,9 +198,9 @@ void printTestMode() {
       }
 
       break;
-    case 2:
+    case SUBMODE_TS_RUNNING:
       lcd.setCursor(0, 0);
-      lcd.print("Test #");
+      lcd.print("Run#");
       lcd.print(runCounter);
       if (runCounter > 0) {
         lcd.print(" T=");
@@ -200,8 +209,8 @@ void printTestMode() {
 
       lcd.setCursor(0, 1);
       printTimerValue();
-      lcd.print(" d=1");
 
+      lcd.print(" d=1");
       if (deltaStops > 1) {
         lcd.print("/");
         lcd.print(deltaStops);
@@ -217,9 +226,9 @@ void setMode() {
   tmpTimer = 0;
   mainTimer = timerInitialValue;
 
-  mode = (mode == linearMode) ? testStripMode : linearMode;
+  mode = (mode == MODE_LINEAR) ? MODE_TEST_STRIP : MODE_LINEAR;
 
-  allowedToRUN = mode == linearMode;
+  allowedToRUN = mode == MODE_LINEAR;
 
   printModeInitials();
 }
@@ -231,19 +240,22 @@ void encPlus(uint8_t isFast) {
   }
 
   switch (mode) {
-    case linearMode:
+    case MODE_LINEAR:
       mainTimer = encInc(mainTimer, isFast);
       printLinearMode();
       break;
 
-    case testStripMode:
+    case MODE_TEST_STRIP:
       switch (submode) {
-        case 0:
+        case SUBMODE_TS_INIT:
           mainTimer = encInc(mainTimer, isFast);
           break;
-        case 1:
+        case SUBMODE_TS_FSTOP:
           deltaStops = nextFstopFraction(deltaStops);
           break;
+        //        case SUBMODE_TS_RUNNING:
+        //          fstopCalcPlus();
+        //          break;
         default:
           return;
       }
@@ -260,19 +272,22 @@ void encMinus(uint8_t isFast) {
   }
 
   switch (mode) {
-    case linearMode:
+    case MODE_LINEAR:
       mainTimer = encDec(mainTimer, isFast);
       printLinearMode();
       break;
 
-    case testStripMode:
+    case MODE_TEST_STRIP:
       switch (submode) {
-        case 0:
+        case SUBMODE_TS_INIT:
           mainTimer = encDec(mainTimer, isFast);
           break;
-        case 1:
+        case SUBMODE_TS_FSTOP:
           deltaStops = prevFstopFraction(deltaStops);
           break;
+        //        case SUBMODE_TS_RUNNING:
+        //          fstopCalcMinus();
+        //          break;
         default:
           return;
       }
@@ -290,7 +305,7 @@ void encClick() {
 
   // click changes sub-modes
   switch (mode) {
-    case testStripMode:
+    case MODE_TEST_STRIP:
       submode++;
       if (submode > 2) {
         submode = 0;
@@ -310,7 +325,7 @@ void encClick() {
       printTestMode();
       break;
 
-    case linearMode:
+    case MODE_LINEAR:
       allowedToRUN = 1;
       break;
   }
@@ -378,7 +393,7 @@ void timerUpdate() {
       //
       runCounter++;
       mainTimer = savedTimer;
-      if (mode == testStripMode) {
+      if (mode == MODE_TEST_STRIP) {
         // TODO:
         auto x = addFstop(tmpTimer, deltaStops);
         mainTimer = x - tmpTimer;
@@ -396,6 +411,29 @@ void timerUpdate() {
   }
 }
 
+void fstopCalcPlus() {
+  if (runCounter >= 99 ) {
+    return;
+  }
+
+  runCounter++;
+
+  auto x = addFstop(tmpTimer, deltaStops);
+  mainTimer = x - tmpTimer;
+  tmpTimer = x;
+};
+
+void fstopCalcMinus() {
+  if (runCounter == 1) {
+    return;
+  }
+
+  runCounter--;
+
+  tmpTimer = subFstop(tmpTimer, deltaStops);
+  mainTimer = mainTimer - tmpTimer;
+};
+
 void loop() {
   enc.tick();
   fireButton.update();
@@ -412,11 +450,6 @@ void loop() {
 
 float addFstop(float v, uint8_t dividee) {
   float tmp = 1.0 / dividee;
-  return v * pow(2, tmp);
-}
-
-float mulFstop(float v, float nth, uint8_t dividee) {
-  float tmp = nth / dividee;
   return v * pow(2, tmp);
 }
 
