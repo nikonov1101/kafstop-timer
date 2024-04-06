@@ -26,12 +26,12 @@
 #define MODE_TEST_STRIP 1
 
 // sub-modes for TEST_STRIP
-#define SUBMODE_TS_INIT 0 // set test initial time
-#define SUBMODE_TS_FSTOP 1 // set f/stop incerements
-#define SUBMODE_TS_RUNNING 2 // run the test
+#define SUBMODE_TS_INIT 0     // set test initial time
+#define SUBMODE_TS_FSTOP 1    // set f/stop incerements
+#define SUBMODE_TS_RUNNING 2  // run the test
 
 // sub-modes for MODE_LINEAR
-#define SUBMODE_LINEAR 0 // just a linear mode
+#define SUBMODE_LINEAR 0  // just a linear mode
 
 #define timerInitialValue 8.0
 
@@ -46,11 +46,11 @@ ButtonDebounce focusButton(BTN_FOCUS, debounceDelay);
 static uint8_t mode = MODE_TEST_STRIP;
 static uint8_t submode = SUBMODE_TS_INIT;
 
-static float mainTimer = timerInitialValue;         // 4 byte
+static float mainTimer = timerInitialValue;   // 4 byte
 static float savedTimer = timerInitialValue;  // 4 more byte
-static float tmpTimer;                // a crutch for a fstop auto advancing
-static uint8_t deltaStops = 1;        // 1 / n-th stop
-static uint8_t runCounter = 0;        // increments on each test run
+static float tmpTimer;                        // a crutch for a fstop auto advancing
+static uint8_t deltaStops = 1;                // 1 / n-th stop
+static uint8_t runCounter = 0;                // increments on each test run
 
 // relay output modes
 #define RELAY_MODE_OFF 0
@@ -140,40 +140,62 @@ void printModeInitials() {
   }
 }
 
-void printTimerValue() {
+void printMainTimer() {
+  // main timer (t smol, counting)
   lcd.setCursor(0, 1);
   lcd.print("t=");
-
-  if (mainTimer < 10) {
-    lcd.print(mainTimer, 1);
-  } else {
-    // TODO(nikonov1101): don't. Print decimal part only if value is less than 10.
-    auto x1 = (uint16_t)mainTimer * 100;
-    auto x2 = mainTimer * 100.0;
-
-    if (x1 == (uint16_t)x2) {
-      lcd.print(mainTimer, 0);
-    } else {
-      lcd.print(mainTimer, 1);
-    }
-  }
-
+  lcd.print(mainTimer, 1);
   lcd.print("s");
 }
 
+// T cumulative, only for test strip mode
+void printTotalTimer() {
+  auto offset = 11;
+  auto val = tmpTimer - mainTimer;
+
+  // move "T=" to left for large numbers
+  if (val >= 10) {
+    offset--;
+  }
+  if (val >= 100) {
+    offset--;
+  }
+  if (val >= 1000) {
+    offset--;
+  }
+
+  lcd.setCursor(offset, 0);
+  lcd.print("T=");
+  lcd.print(val, 1);
+}
+
+void printRunCounter() {
+  // run counter, always bottom right position, # + 2 gidits
+  auto offset = 14;
+  if (runCounter >= 10) {  // two digits
+    offset--;
+  }
+  lcd.setCursor(offset, 1);
+  lcd.print("#");
+  lcd.print(runCounter);
+}
+
+// handles 2-nd line only, timer value (running),
+// plus run counter in bottom right corner
+void printBottonLine() {
+  printMainTimer();
+  printRunCounter();
+}
+
 void printLinearMode() {
-  // TODO(nikonov1101): avoid if possible
   lcd.clear();
 
   lcd.setCursor(0, 0);
-  lcd.print("Linear: run #");
-  lcd.print(runCounter);
-
-  printTimerValue();
+  lcd.print("Timer:");
+  printBottonLine();
 }
 
 void printTestMode() {
-  // TODO(nikonov1101): don't clear the display on each timer tick.
   lcd.clear();
 
   switch (submode) {
@@ -181,41 +203,27 @@ void printTestMode() {
       lcd.setCursor(0, 0);
       lcd.print("Test: init time");
 
-      printTimerValue();
+      // note: main timer only, not a whole botton line,
+      // (without the run counter)
+      printMainTimer();
       break;
 
     case SUBMODE_TS_FSTOP:
       lcd.setCursor(0, 0);
-      lcd.print("Test: set step");
+      lcd.print("Test: set fstop");
 
       lcd.setCursor(0, 1);
-      if (deltaStops == 1) {
-        lcd.print("d=1 fs");
-      } else {
-        lcd.print("d=1/");
-        lcd.print(deltaStops);
-        lcd.print(" fs");
-      }
+      lcd.print("f=1/");
+      lcd.print(deltaStops);
 
       break;
     case SUBMODE_TS_RUNNING:
       lcd.setCursor(0, 0);
-      lcd.print("Run#");
-      lcd.print(runCounter);
-      if (runCounter > 0) {
-        lcd.print(" T=");
-        lcd.print(tmpTimer - mainTimer, 1);
-      }
+      lcd.print("f=1/");
+      lcd.print(deltaStops);
 
-      lcd.setCursor(0, 1);
-      printTimerValue();
-
-      lcd.print(" d=1");
-      if (deltaStops > 1) {
-        lcd.print("/");
-        lcd.print(deltaStops);
-      }
-      lcd.print("fs");
+      printTotalTimer();
+      printBottonLine();
       break;
   }
 }
@@ -385,34 +393,45 @@ void timerUpdate() {
   // timer is running
   if (relayMode == RELAY_MODE_ON) {
     auto now = millis();
+
+    // at the end of run
     if (now >= endAt) {
       // immediately off
       digitalWrite(RELAY_PIN, HIGH);
       relayMode = RELAY_MODE_OFF;
 
-      //
-      runCounter++;
+      if (++runCounter > 99) {
+        runCounter = 99;
+      }
+
       mainTimer = savedTimer;
       if (mode == MODE_TEST_STRIP) {
-        // TODO:
+        // advance F-stop in test strip mode
         auto x = addFstop(tmpTimer, deltaStops);
         mainTimer = x - tmpTimer;
         tmpTimer = x;
+
+        // print updated "T" for test strip mode
+        printTotalTimer();
       }
 
-      printModeInitials();
+      // refresh the whole line
+      printBottonLine();
+
       return;
     }
 
     auto delta = now - startedAt;
     auto tmp = (float)delta / 1000.0;
     mainTimer = savedTimer - tmp;
-    printModeInitials();
+
+    // only update main timer on each tick
+    printMainTimer();
   }
 }
 
 void fstopCalcPlus() {
-  if (runCounter >= 99 ) {
+  if (runCounter >= 99) {
     return;
   }
 
